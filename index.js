@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, ChannelType, PermissionsBitField } = require('discord.js');
+const { Client, GatewayIntentBits, ChannelType, PermissionsBitField, REST, Routes } = require('discord.js');
 const cron = require('node-cron');
 
 const client = new Client({
@@ -13,14 +13,79 @@ const client = new Client({
 // Stockage des configurations de compteurs
 const guildCounters = new Map();
 
-client.once('ready', () => {
+// Fonction pour déployer les commandes
+async function deployCommands() {
+  try {
+    const commands = [
+      {
+        name: 'setup',
+        description: 'Configurer les compteurs vocaux',
+        options: [
+          {
+            name: 'categorie',
+            description: 'ID de la catégorie où créer les salons',
+            type: 7,
+            channel_types: [4],
+            required: true
+          },
+          {
+            name: 'compteur1',
+            description: 'Nom du premier compteur (emojis acceptés)',
+            type: 3,
+            required: false
+          },
+          {
+            name: 'compteur2',
+            description: 'Nom du deuxième compteur (emojis acceptés)',
+            type: 3,
+            required: false
+          },
+          {
+            name: 'compteur3',
+            description: 'Nom du troisième compteur (emojis acceptés)',
+            type: 3,
+            required: false
+          },
+          {
+            name: 'compteur4',
+            description: 'Nom du quatrième compteur (emojis acceptés)',
+            type: 3,
+            required: false
+          }
+        ]
+      }
+    ];
+
+    const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+    
+    console.log('🔄 Déploiement des commandes slash...');
+    
+    await rest.put(
+      Routes.applicationCommands(process.env.CLIENT_ID),
+      { body: commands }
+    );
+    
+    console.log('✅ Commandes déployées avec succès !');
+    console.log('📝 Commande disponible : /setup');
+  } catch (error) {
+    console.error('❌ Erreur lors du déploiement des commandes:', error);
+  }
+}
+
+client.once('ready', async () => {
   console.log(`✅ Bot connecté en tant que ${client.user.tag}`);
   console.log(`📊 Serveurs: ${client.guilds.cache.size}`);
-  console.log(`⏱️ Mise à jour automatique toutes les 5 minutes`);
+  
+  // Déployer les commandes au démarrage
+  if (process.env.CLIENT_ID) {
+    await deployCommands();
+  } else {
+    console.warn('⚠️ CLIENT_ID non défini, ajoutez-le dans Railway pour déployer les commandes');
+  }
   
   // Planifier la mise à jour toutes les 5 minutes
   cron.schedule('*/5 * * * *', () => {
-    console.log('🔄 Mise à jour des compteurs...');
+    console.log('🔄 Mise à jour automatique des compteurs...');
     updateAllCounters();
   });
   
@@ -224,6 +289,3 @@ if (!TOKEN) {
 
 console.log('🚀 Démarrage du bot...');
 client.login(TOKEN);
-
-// Keep-alive simple pour Railway (sans Express)
-console.log('🌐 Bot démarré, en attente des événements Discord...');
