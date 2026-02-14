@@ -1,4 +1,3 @@
-
 const { Client, GatewayIntentBits, ChannelType, PermissionsBitField, REST, Routes } = require('discord.js');
 const cron = require('node-cron');
 
@@ -31,25 +30,25 @@ async function deployCommands() {
           },
           {
             name: 'compteur1',
-            description: 'Nom du premier compteur (emojis acceptés)',
+            description: 'Nom du premier compteur',
             type: 3,
             required: false
           },
           {
             name: 'compteur2',
-            description: 'Nom du deuxième compteur (emojis acceptés)',
+            description: 'Nom du deuxième compteur',
             type: 3,
             required: false
           },
           {
             name: 'compteur3',
-            description: 'Nom du troisième compteur (emojis acceptés)',
+            description: 'Nom du troisième compteur',
             type: 3,
             required: false
           },
           {
             name: 'compteur4',
-            description: 'Nom du quatrième compteur (emojis acceptés)',
+            description: 'Nom du quatrième compteur',
             type: 3,
             required: false
           }
@@ -59,22 +58,22 @@ async function deployCommands() {
 
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
     
-    console.log('🔄 Déploiement des commandes slash...');
+    console.log('Deploiement des commandes slash...');
     
     await rest.put(
       Routes.applicationCommands(process.env.CLIENT_ID),
       { body: commands }
     );
     
-    console.log('✅ Commandes déployées avec succès !');
+    console.log('Commandes deployees avec succes !');
   } catch (error) {
-    console.error('❌ Erreur lors du déploiement des commandes:', error);
+    console.error('Erreur lors du deploiement des commandes:', error);
   }
 }
 
 client.once('ready', async () => {
-  console.log(`✅ Bot connecté en tant que ${client.user.tag}`);
-  console.log(`📊 Serveurs: ${client.guilds.cache.size}`);
+  console.log(`Bot connecte en tant que ${client.user.tag}`);
+  console.log(`Serveurs: ${client.guilds.cache.size}`);
   
   // Afficher les serveurs où le bot est présent
   client.guilds.cache.forEach(guild => {
@@ -85,58 +84,58 @@ client.once('ready', async () => {
   if (process.env.CLIENT_ID) {
     await deployCommands();
   } else {
-    console.warn('⚠️ CLIENT_ID non défini, ajoutez-le dans Railway pour déployer les commandes');
+    console.warn('CLIENT_ID non defini, ajoutez-le dans Railway pour deployer les commandes');
   }
   
   // Vérifier les configurations existantes
-  console.log(`📝 Configurations chargées: ${guildCounters.size} serveurs`);
+  console.log(`Configurations chargees: ${guildCounters.size} serveurs`);
   
   // Planifier la mise à jour toutes les 5 minutes
   cron.schedule('*/5 * * * *', () => {
-    console.log('🔄 CRON: Mise à jour automatique des compteurs...');
+    console.log('Mise a jour automatique des compteurs...');
     updateAllCounters();
   });
   
   // Première mise à jour après 10 secondes
   setTimeout(() => {
-    console.log('🔄 TIMER: Première mise à jour des compteurs...');
+    console.log('Premiere mise a jour des compteurs...');
     updateAllCounters();
   }, 10000);
   
   // Vérification toutes les minutes pour le débogage
   setInterval(() => {
-    console.log(`📊 Stats: ${guildCounters.size} configurations actives`);
+    console.log(`Stats: ${guildCounters.size} configurations actives`);
   }, 60000);
 });
 
 async function updateAllCounters() {
-  console.log(`🔍 Début de mise à jour pour ${guildCounters.size} configurations`);
+  console.log(`Debut de mise a jour pour ${guildCounters.size} configurations`);
   
   if (guildCounters.size === 0) {
-    console.log('⚠️ Aucune configuration trouvée, utilisez /setup d\'abord');
+    console.log('Aucune configuration trouvee, utilisez /setup d\'abord');
     return;
   }
   
   for (const [guildId, config] of guildCounters) {
     const guild = client.guilds.cache.get(guildId);
     if (!guild) {
-      console.log(`❌ Serveur ${guildId} non trouvé`);
+      console.log(`Serveur ${guildId} non trouve`);
       continue;
     }
     
-    console.log(`🔄 Mise à jour pour ${guild.name} (${guildId})`);
+    console.log(`Mise a jour pour ${guild.name} (${guildId})`);
     
     try {
       await updateGuildCounters(guild, config);
     } catch (error) {
-      console.error(`❌ Erreur pour ${guild.name}:`, error);
+      console.error(`Erreur pour ${guild.name}:`, error);
     }
   }
 }
 
 async function updateGuildCounters(guild, config) {
   try {
-    console.log(`📊 Récupération des données pour ${guild.name}...`);
+    console.log(`Recuperation des donnees pour ${guild.name}...`);
     
     // Récupérer les membres
     const members = await guild.members.fetch();
@@ -154,27 +153,28 @@ async function updateGuildCounters(guild, config) {
     // Nombre de boosts
     const boostCount = guild.premiumSubscriptionCount || 0;
     
-    console.log(`📈 Données pour ${guild.name}:`);
+    console.log(`Donnees pour ${guild.name}:`);
     console.log(`   - Total: ${totalMembers}`);
     console.log(`   - En ligne: ${onlineMembers}`);
     console.log(`   - En vocal: ${voiceMembers}`);
     console.log(`   - Boosts: ${boostCount}`);
     
+    // PAS D'EMOJIS ICI
     const counters = [
-      { name: config.counter1, value: `👥 ${totalMembers}`, index: 0 },
-      { name: config.counter2, value: `🟢 ${onlineMembers}`, index: 1 },
-      { name: config.counter3, value: `🔊 ${voiceMembers}`, index: 2 },
-      { name: config.counter4, value: `🚀 ${boostCount}`, index: 3 }
+      { name: config.counter1, value: `${totalMembers}`, index: 0 },
+      { name: config.counter2, value: `${onlineMembers}`, index: 1 },
+      { name: config.counter3, value: `${voiceMembers}`, index: 2 },
+      { name: config.counter4, value: `${boostCount}`, index: 3 }
     ];
     
-    console.log(`🔧 Salons configurés: ${config.voiceChannels.length}`);
+    console.log(`Salons configures: ${config.voiceChannels.length}`);
     
     for (let i = 0; i < config.voiceChannels.length; i++) {
       const channelId = config.voiceChannels[i];
       const channel = guild.channels.cache.get(channelId);
       
       if (!channel) {
-        console.log(`❌ Salon ${channelId} non trouvé pour ${guild.name}`);
+        console.log(`Salon ${channelId} non trouve pour ${guild.name}`);
         continue;
       }
       
@@ -183,25 +183,25 @@ async function updateGuildCounters(guild, config) {
         const counterValue = counters[i].value;
         const newName = `${counterName} ${counterValue}`;
         
-        console.log(`🔄 Salon ${i+1}: "${channel.name}" -> "${newName}"`);
+        console.log(`Salon ${i+1}: "${channel.name}" -> "${newName}"`);
         
         if (channel.name !== newName) {
           try {
             await channel.setName(newName);
-            console.log(`✅ Salon renommé avec succès`);
+            console.log(`Salon renomme avec succes`);
           } catch (error) {
-            console.error(`❌ Erreur renommage salon:`, error);
+            console.error(`Erreur renommage salon:`, error);
           }
         } else {
-          console.log(`⏭️ Pas de changement nécessaire`);
+          console.log(`Pas de changement necessaire`);
         }
       }
     }
     
-    console.log(`✅ Mise à jour terminée pour ${guild.name}`);
+    console.log(`Mise a jour terminee pour ${guild.name}`);
     
   } catch (error) {
-    console.error(`❌ Erreur critique pour ${guild.name}:`, error);
+    console.error(`Erreur critique pour ${guild.name}:`, error);
   }
 }
 
@@ -211,13 +211,13 @@ client.on('interactionCreate', async (interaction) => {
   const { commandName, options, user, guild } = interaction;
   
   if (commandName === 'setup') {
-    console.log(`📝 Commande setup reçue de ${user.tag} sur ${guild?.name}`);
+    console.log(`Commande setup recue de ${user.tag} sur ${guild?.name}`);
     
     // Vérifier si l'utilisateur est le propriétaire du serveur
     if (user.id !== guild.ownerId) {
-      console.log(`❌ ${user.tag} n'est pas propriétaire`);
+      console.log(`${user.tag} n'est pas proprietaire`);
       return interaction.reply({
-        content: '❌ Seul le propriétaire du serveur peut utiliser cette commande !',
+        content: 'Seul le proprietaire du serveur peut utiliser cette commande !',
         ephemeral: true
       });
     }
@@ -228,14 +228,14 @@ client.on('interactionCreate', async (interaction) => {
     const counter3 = options.getString('compteur3');
     const counter4 = options.getString('compteur4');
     
-    console.log(`📋 Paramètres:`, {
+    console.log(`Parametres:`, {
       categorie: category?.id,
       counter1, counter2, counter3, counter4
     });
     
     if (!category || category.type !== ChannelType.GuildCategory) {
       return interaction.reply({
-        content: '❌ Veuillez spécifier une catégorie valide !',
+        content: 'Veuillez specifier une categorie valide !',
         ephemeral: true
       });
     }
@@ -246,12 +246,12 @@ client.on('interactionCreate', async (interaction) => {
       // Supprimer les anciens salons vocaux
       const existingConfig = guildCounters.get(guild.id);
       if (existingConfig) {
-        console.log(`🗑️ Suppression des anciens salons...`);
+        console.log(`Suppression des anciens salons...`);
         for (const channelId of existingConfig.voiceChannels) {
           const channel = guild.channels.cache.get(channelId);
           if (channel) {
             await channel.delete();
-            console.log(`✅ Salon ${channelId} supprimé`);
+            console.log(`Salon ${channelId} supprime`);
           }
         }
       }
@@ -260,15 +260,15 @@ client.on('interactionCreate', async (interaction) => {
       const voiceChannels = [];
       const counters = [counter1, counter2, counter3, counter4].filter(c => c);
       
-      console.log(`🏗️ Création de ${counters.length} salons...`);
+      console.log(`Creation de ${counters.length} salons...`);
       
       for (let i = 0; i < counters.length; i++) {
         const counter = counters[i];
         
-        console.log(`Création salon ${i+1}: ${counter}`);
+        console.log(`Creation salon ${i+1}: ${counter}`);
         
         const channel = await guild.channels.create({
-          name: `${counter} ⏳`,
+          name: `${counter} ...`,  // Temporary name with dots
           type: ChannelType.GuildVoice,
           parent: category.id,
           permissionOverwrites: [
@@ -280,7 +280,7 @@ client.on('interactionCreate', async (interaction) => {
         });
         
         voiceChannels.push(channel.id);
-        console.log(`✅ Salon créé: ${channel.id}`);
+        console.log(`Salon cree: ${channel.id}`);
       }
       
       // Sauvegarder la configuration
@@ -293,30 +293,30 @@ client.on('interactionCreate', async (interaction) => {
         categoryId: category.id
       });
       
-      console.log(`💾 Configuration sauvegardée pour ${guild.name}`);
+      console.log(`Configuration sauvegardee pour ${guild.name}`);
       
-      // Créer le message de confirmation
-      let confirmMessage = `✅ ${voiceChannels.length} compteurs vocaux créés !\n\n📊 **Configuration :**\n`;
+      // Message de confirmation SANS EMOJIS
+      let confirmMessage = `${voiceChannels.length} compteurs vocaux crees !\n\nConfiguration :\n`;
       
-      if (counter1) confirmMessage += `• ${counter1} → Membres totaux \n`;
-      if (counter2) confirmMessage += `• ${counter2} → Membres en ligne \n`;
-      if (counter3) confirmMessage += `• ${counter3} → Membres en vocal \n`;
-      if (counter4) confirmMessage += `• ${counter4} → Boosts \n`;
+      if (counter1) confirmMessage += `- ${counter1} : Membres totaux\n`;
+      if (counter2) confirmMessage += `- ${counter2} : Membres en ligne\n`;
+      if (counter3) confirmMessage += `- ${counter3} : Membres en vocal\n`;
+      if (counter4) confirmMessage += `- ${counter4} : Boosts\n`;
       
-      confirmMessage += `\n⏱️ Mise à jour auto toutes les 5 min`;
+      confirmMessage += `\nMise a jour automatique toutes les 5 minutes`;
       
       await interaction.editReply({
         content: confirmMessage
       });
       
       // Mise à jour immédiate
-      console.log(`🔄 Mise à jour immédiate...`);
+      console.log(`Mise a jour immediate...`);
       await updateGuildCounters(guild, guildCounters.get(guild.id));
       
     } catch (error) {
-      console.error('❌ ERREUR SETUP:', error);
+      console.error('ERREUR SETUP:', error);
       await interaction.editReply({
-        content: '❌ Erreur: ' + error.message
+        content: 'Erreur: ' + error.message
       });
     }
   }
@@ -325,19 +325,26 @@ client.on('interactionCreate', async (interaction) => {
 // Écouter les événements pour mettre à jour plus rapidement
 client.on('voiceStateUpdate', async (oldState, newState) => {
   if (oldState.channelId !== newState.channelId) {
-    console.log(`🔊 Changement vocal détecté sur ${newState.guild.name}`);
+    console.log(`Changement vocal detecte sur ${newState.guild.name}`);
     setTimeout(() => {
       updateAllCounters();
     }, 3000);
   }
 });
 
+// Gestion des erreurs
+client.on('error', console.error);
+process.on('unhandledRejection', (error) => {
+  console.error('Unhandled Rejection:', error);
+});
+
 // Connexion avec le token Railway
 const TOKEN = process.env.TOKEN;
 if (!TOKEN) {
-  console.error('❌ Token Discord manquant !');
+  console.error('Token Discord manquant !');
+  console.error('Ajoutez TOKEN dans les variables d\'environnement Railway');
   process.exit(1);
 }
 
-console.log('🚀 Démarrage du bot...');
+console.log('Demarrage du bot...');
 client.login(TOKEN);
