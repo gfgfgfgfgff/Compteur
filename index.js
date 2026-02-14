@@ -16,6 +16,7 @@ const guildCounters = new Map();
 client.once('ready', () => {
   console.log(`✅ Bot connecté en tant que ${client.user.tag}`);
   console.log(`📊 Serveurs: ${client.guilds.cache.size}`);
+  console.log(`⏱️ Mise à jour automatique toutes les 5 minutes`);
   
   // Planifier la mise à jour toutes les 5 minutes
   cron.schedule('*/5 * * * *', () => {
@@ -44,44 +45,48 @@ async function updateAllCounters() {
 }
 
 async function updateGuildCounters(guild, config) {
-  // Récupérer les membres
-  const members = await guild.members.fetch();
-  const totalMembers = members.size;
-  
-  // Membres en ligne (online, idle, dnd)
-  const onlineMembers = members.filter(m => 
-    m.presence?.status === 'online' || 
-    m.presence?.status === 'idle' || 
-    m.presence?.status === 'dnd'
-  ).size;
-  
-  // Membres en vocal
-  const voiceMembers = members.filter(m => m.voice.channelId).size;
-  
-  // Nombre de boosts
-  const boostCount = guild.premiumSubscriptionCount || 0;
-  
-  const counters = [
-    { name: config.counter1, value: `👥 ${totalMembers}` },
-    { name: config.counter2, value: `🟢 ${onlineMembers}` },
-    { name: config.counter3, value: `🔊 ${voiceMembers}` },
-    { name: config.counter4, value: `🚀 ${boostCount}` }
-  ];
-  
-  for (let i = 0; i < config.voiceChannels.length; i++) {
-    const channelId = config.voiceChannels[i];
-    const channel = guild.channels.cache.get(channelId);
+  try {
+    // Récupérer les membres
+    const members = await guild.members.fetch();
+    const totalMembers = members.size;
     
-    if (channel && counters[i]?.name) {
-      const counterName = counters[i].name;
-      const counterValue = counters[i].value;
-      const newName = `${counterName} ${counterValue}`;
+    // Membres en ligne (online, idle, dnd)
+    const onlineMembers = members.filter(m => 
+      m.presence?.status === 'online' || 
+      m.presence?.status === 'idle' || 
+      m.presence?.status === 'dnd'
+    ).size;
+    
+    // Membres en vocal
+    const voiceMembers = members.filter(m => m.voice.channelId).size;
+    
+    // Nombre de boosts
+    const boostCount = guild.premiumSubscriptionCount || 0;
+    
+    const counters = [
+      { name: config.counter1, value: `👥 ${totalMembers}` },
+      { name: config.counter2, value: `🟢 ${onlineMembers}` },
+      { name: config.counter3, value: `🔊 ${voiceMembers}` },
+      { name: config.counter4, value: `🚀 ${boostCount}` }
+    ];
+    
+    for (let i = 0; i < config.voiceChannels.length; i++) {
+      const channelId = config.voiceChannels[i];
+      const channel = guild.channels.cache.get(channelId);
       
-      if (channel.name !== newName) {
-        await channel.setName(newName)
-          .catch(console.error);
+      if (channel && counters[i]?.name) {
+        const counterName = counters[i].name;
+        const counterValue = counters[i].value;
+        const newName = `${counterName} ${counterValue}`;
+        
+        if (channel.name !== newName) {
+          await channel.setName(newName)
+            .catch(console.error);
+        }
       }
     }
+  } catch (error) {
+    console.error(`Erreur dans updateGuildCounters pour ${guild.name}:`, error);
   }
 }
 
@@ -128,17 +133,8 @@ client.on('interactionCreate', async (interaction) => {
       const voiceChannels = [];
       const counters = [counter1, counter2, counter3, counter4].filter(c => c);
       
-      // Messages d'information pour chaque compteur
-      const counterInfo = [
-        { name: counter1, desc: "Membres totaux" },
-        { name: counter2, desc: "Membres en ligne" },
-        { name: counter3, desc: "Membres en vocal" },
-        { name: counter4, desc: "Boosts du serveur" }
-      ];
-      
       for (let i = 0; i < counters.length; i++) {
         const counter = counters[i];
-        const info = counterInfo.find(c => c.name === counter);
         
         const channel = await guild.channels.create({
           name: `${counter} ⏳`,
@@ -165,14 +161,18 @@ client.on('interactionCreate', async (interaction) => {
         categoryId: category.id
       });
       
+      // Créer le message de confirmation
+      let confirmMessage = `✅ ${voiceChannels.length} compteurs vocaux créés avec succès !\n\n📊 **Configuration :**\n`;
+      
+      if (counter1) confirmMessage += `• ${counter1} → Membres totaux 👥\n`;
+      if (counter2) confirmMessage += `• ${counter2} → Membres en ligne 🟢\n`;
+      if (counter3) confirmMessage += `• ${counter3} → Membres en vocal 🔊\n`;
+      if (counter4) confirmMessage += `• ${counter4} → Nombre de boosts 🚀\n`;
+      
+      confirmMessage += `\n⏱️ Mise à jour automatique toutes les 5 minutes.`;
+      
       await interaction.editReply({
-        content: `✅ ${voiceChannels.length} compteurs vocaux créés avec succès !\n\n` +
-                `📊 **Configuration :**\n` +
-                `${counter1 ? `• ${counter1} → Membres totaux\n` : ''}` +
-                `${counter2 ? `• ${counter2} → Membres en ligne\n` : ''}` +
-                `${counter3 ? `• ${counter3} → Membres en vocal\n` : ''}` +
-                `${counter4 ? `• ${counter4} → Nombre de boosts\n` : ''}` +
-                `\n⏱️ Mise à jour automatique toutes les 5 minutes.`
+        content: confirmMessage
       });
       
       // Mise à jour immédiate
@@ -188,47 +188,42 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // Écouter les événements pour mettre à jour plus rapidement
-client.on('voiceStateUpdate', async () => {
-  // Mise à jour différée pour éviter trop d'appels
-  setTimeout(() => {
-    updateAllCounters();
-  }, 5000);
+client.on('voiceStateUpdate', async (oldState, newState) => {
+  if (oldState.channelId !== newState.channelId) {
+    setTimeout(() => {
+      updateAllCounters();
+    }, 3000);
+  }
 });
 
 client.on('guildMemberUpdate', async () => {
   setTimeout(() => {
     updateAllCounters();
-  }, 5000);
+  }, 3000);
 });
 
 client.on('guildUpdate', async () => {
   setTimeout(() => {
     updateAllCounters();
-  }, 5000);
+  }, 3000);
 });
 
 // Gestion des erreurs
 client.on('error', console.error);
-process.on('unhandledRejection', console.error);
+process.on('unhandledRejection', (error) => {
+  console.error('Unhandled Rejection:', error);
+});
 
 // Connexion avec le token Railway
 const TOKEN = process.env.TOKEN;
 if (!TOKEN) {
   console.error('❌ Token Discord manquant ! Vérifiez les variables Railway.');
+  console.error('💡 Ajoutez TOKEN dans les variables d\'environnement Railway');
   process.exit(1);
 }
 
+console.log('🚀 Démarrage du bot...');
 client.login(TOKEN);
 
-// Keep-alive pour Railway
-const express = require('express');
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.get('/', (req, res) => {
-  res.send('Bot Discord actif !');
-});
-
-app.listen(PORT, () => {
-  console.log(`🌐 Serveur web démarré sur le port ${PORT}`);
-});
+// Keep-alive simple pour Railway (sans Express)
+console.log('🌐 Bot démarré, en attente des événements Discord...');
