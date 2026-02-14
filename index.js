@@ -1,0 +1,234 @@
+const { Client, GatewayIntentBits, ChannelType, PermissionsBitField } = require('discord.js');
+const cron = require('node-cron');
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildPresences,
+    GatewayIntentBits.GuildVoiceStates
+  ]
+});
+
+// Stockage des configurations de compteurs
+const guildCounters = new Map();
+
+client.once('ready', () => {
+  console.log(`✅ Bot connecté en tant que ${client.user.tag}`);
+  console.log(`📊 Serveurs: ${client.guilds.cache.size}`);
+  
+  // Planifier la mise à jour toutes les 5 minutes
+  cron.schedule('*/5 * * * *', () => {
+    console.log('🔄 Mise à jour des compteurs...');
+    updateAllCounters();
+  });
+  
+  // Première mise à jour après 10 secondes
+  setTimeout(() => {
+    console.log('🔄 Première mise à jour des compteurs...');
+    updateAllCounters();
+  }, 10000);
+});
+
+async function updateAllCounters() {
+  for (const [guildId, config] of guildCounters) {
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) continue;
+    
+    try {
+      await updateGuildCounters(guild, config);
+    } catch (error) {
+      console.error(`Erreur pour ${guild.name}:`, error);
+    }
+  }
+}
+
+async function updateGuildCounters(guild, config) {
+  // Récupérer les membres
+  const members = await guild.members.fetch();
+  const totalMembers = members.size;
+  
+  // Membres en ligne (online, idle, dnd)
+  const onlineMembers = members.filter(m => 
+    m.presence?.status === 'online' || 
+    m.presence?.status === 'idle' || 
+    m.presence?.status === 'dnd'
+  ).size;
+  
+  // Membres en vocal
+  const voiceMembers = members.filter(m => m.voice.channelId).size;
+  
+  // Nombre de boosts
+  const boostCount = guild.premiumSubscriptionCount || 0;
+  
+  const counters = [
+    { name: config.counter1, value: `👥 ${totalMembers}` },
+    { name: config.counter2, value: `🟢 ${onlineMembers}` },
+    { name: config.counter3, value: `🔊 ${voiceMembers}` },
+    { name: config.counter4, value: `🚀 ${boostCount}` }
+  ];
+  
+  for (let i = 0; i < config.voiceChannels.length; i++) {
+    const channelId = config.voiceChannels[i];
+    const channel = guild.channels.cache.get(channelId);
+    
+    if (channel && counters[i]?.name) {
+      const counterName = counters[i].name;
+      const counterValue = counters[i].value;
+      const newName = `${counterName} ${counterValue}`;
+      
+      if (channel.name !== newName) {
+        await channel.setName(newName)
+          .catch(console.error);
+      }
+    }
+  }
+}
+
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isCommand()) return;
+  
+  const { commandName, options, user, guild } = interaction;
+  
+  if (commandName === 'setup') {
+    // Vérifier si l'utilisateur est le propriétaire du serveur
+    if (user.id !== guild.ownerId) {
+      return interaction.reply({
+        content: '❌ Seul le propriétaire du serveur peut utiliser cette commande !',
+        ephemeral: true
+      });
+    }
+    
+    const category = options.getChannel('categorie');
+    const counter1 = options.getString('compteur1');
+    const counter2 = options.getString('compteur2');
+    const counter3 = options.getString('compteur3');
+    const counter4 = options.getString('compteur4');
+    
+    if (!category || category.type !== ChannelType.GuildCategory) {
+      return interaction.reply({
+        content: '❌ Veuillez spécifier une catégorie valide !',
+        ephemeral: true
+      });
+    }
+    
+    await interaction.deferReply({ ephemeral: true });
+    
+    try {
+      // Supprimer les anciens salons vocaux
+      const existingConfig = guildCounters.get(guild.id);
+      if (existingConfig) {
+        for (const channelId of existingConfig.voiceChannels) {
+          const channel = guild.channels.cache.get(channelId);
+          if (channel) await channel.delete().catch(console.error);
+        }
+      }
+      
+      // Créer les nouveaux salons vocaux
+      const voiceChannels = [];
+      const counters = [counter1, counter2, counter3, counter4].filter(c => c);
+      
+      // Messages d'information pour chaque compteur
+      const counterInfo = [
+        { name: counter1, desc: "Membres totaux" },
+        { name: counter2, desc: "Membres en ligne" },
+        { name: counter3, desc: "Membres en vocal" },
+        { name: counter4, desc: "Boosts du serveur" }
+      ];
+      
+      for (let i = 0; i < counters.length; i++) {
+        const counter = counters[i];
+        const info = counterInfo.find(c => c.name === counter);
+        
+        const channel = await guild.channels.create({
+          name: `${counter} ⏳`,
+          type: ChannelType.GuildVoice,
+          parent: category.id,
+          permissionOverwrites: [
+            {
+              id: guild.id,
+              deny: [PermissionsBitField.Flags.Connect]
+            }
+          ]
+        });
+        
+        voiceChannels.push(channel.id);
+      }
+      
+      // Sauvegarder la configuration
+      guildCounters.set(guild.id, {
+        counter1,
+        counter2,
+        counter3,
+        counter4,
+        voiceChannels,
+        categoryId: category.id
+      });
+      
+      await interaction.editReply({
+        content: `✅ ${voiceChannels.length} compteurs vocaux créés avec succès !\n\n` +
+                `📊 **Configuration :**\n` +
+                `${counter1 ? `• ${counter1} → Membres totaux\n` : ''}` +
+                `${counter2 ? `• ${counter2} → Membres en ligne\n` : ''}` +
+                `${counter3 ? `• ${counter3} → Membres en vocal\n` : ''}` +
+                `${counter4 ? `• ${counter4} → Nombre de boosts\n` : ''}` +
+                `\n⏱️ Mise à jour automatique toutes les 5 minutes.`
+      });
+      
+      // Mise à jour immédiate
+      await updateGuildCounters(guild, guildCounters.get(guild.id));
+      
+    } catch (error) {
+      console.error(error);
+      await interaction.editReply({
+        content: '❌ Une erreur est survenue lors de la création des salons.'
+      });
+    }
+  }
+});
+
+// Écouter les événements pour mettre à jour plus rapidement
+client.on('voiceStateUpdate', async () => {
+  // Mise à jour différée pour éviter trop d'appels
+  setTimeout(() => {
+    updateAllCounters();
+  }, 5000);
+});
+
+client.on('guildMemberUpdate', async () => {
+  setTimeout(() => {
+    updateAllCounters();
+  }, 5000);
+});
+
+client.on('guildUpdate', async () => {
+  setTimeout(() => {
+    updateAllCounters();
+  }, 5000);
+});
+
+// Gestion des erreurs
+client.on('error', console.error);
+process.on('unhandledRejection', console.error);
+
+// Connexion avec le token Railway
+const TOKEN = process.env.TOKEN;
+if (!TOKEN) {
+  console.error('❌ Token Discord manquant ! Vérifiez les variables Railway.');
+  process.exit(1);
+}
+
+client.login(TOKEN);
+
+// Keep-alive pour Railway
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.send('Bot Discord actif !');
+});
+
+app.listen(PORT, () => {
+  console.log(`🌐 Serveur web démarré sur le port ${PORT}`);
+});
