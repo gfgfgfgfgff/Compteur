@@ -129,10 +129,10 @@ async function updateGuildCounters(guild, config) {
     const boostCount = guild.premiumSubscriptionCount || 0;
     
     const counters = [
-      { name: config.counter1, value: `👥 ${totalMembers}` },
-      { name: config.counter2, value: `🟢 ${onlineMembers}` },
-      { name: config.counter3, value: `🔊 ${voiceMembers}` },
-      { name: config.counter4, value: `🚀 ${boostCount}` }
+      { name: config.counter1, value: `${totalMembers}` },
+      { name: config.counter2, value: `${onlineMembers}` },
+      { name: config.counter3, value: `${voiceMembers}` },
+      { name: config.counter4, value: `${boostCount}` }
     ];
     
     for (let i = 0; i < config.voiceChannels.length; i++) {
@@ -164,7 +164,7 @@ client.on('interactionCreate', async (interaction) => {
     // Vérifier si l'utilisateur est le propriétaire du serveur
     if (user.id !== guild.ownerId) {
       return interaction.reply({
-        content: '❌ Seul le propriétaire du serveur peut utiliser cette commande !',
+        content: 'Seul le propriétaire du serveur peut utiliser cette commande !',
         ephemeral: true
       });
     }
@@ -229,10 +229,10 @@ client.on('interactionCreate', async (interaction) => {
       // Créer le message de confirmation
       let confirmMessage = `✅ ${voiceChannels.length} compteurs vocaux créés avec succès !\n\n📊 **Configuration :**\n`;
       
-      if (counter1) confirmMessage += `• ${counter1} → Membres totaux 👥\n`;
-      if (counter2) confirmMessage += `• ${counter2} → Membres en ligne 🟢\n`;
-      if (counter3) confirmMessage += `• ${counter3} → Membres en vocal 🔊\n`;
-      if (counter4) confirmMessage += `• ${counter4} → Nombre de boosts 🚀\n`;
+      if (counter1) confirmMessage += `• ${counter1} → Membres totaux\n`;
+      if (counter2) confirmMessage += `• ${counter2} → Membres en ligne\n`;
+      if (counter3) confirmMessage += `• ${counter3} → Membres en vocal\n`;
+      if (counter4) confirmMessage += `• ${counter4} → Nombre de boosts\n`;
       
       confirmMessage += `\n⏱️ Mise à jour automatique toutes les 5 minutes.`;
       
