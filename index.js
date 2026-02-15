@@ -117,6 +117,24 @@ async function loadConfigFromFile(filePath) {
   }
 }
 
+// Fonction pour copier les permissions d'un salon
+async function copyChannelPermissions(oldChannel, newChannel) {
+  // Copier les permissions normales
+  const permissionOverwrites = oldChannel.permissionOverwrites.cache.map(overwrite => ({
+    id: overwrite.id,
+    allow: overwrite.allow.bitfield,
+    deny: overwrite.deny.bitfield,
+    type: overwrite.type
+  }));
+  
+  for (const perm of permissionOverwrites) {
+    await newChannel.permissionOverwrites.create(perm.id, {
+      allow: perm.allow,
+      deny: perm.deny
+    }).catch(() => {});
+  }
+}
+
 // Fonction pour déployer les commandes
 async function deployCommands() {
   try {
@@ -334,7 +352,7 @@ client.on('messageCreate', async (message) => {
     return message.reply({
       embeds: [new EmbedBuilder()
         .setColor('#FFFFFF')
-        .setDescription('Vous n\'avez pas la permission d\'utiliser cette commande.')
+        .setDescription('Vous n\'avez pas les permissions nécessaires')
       ]
     });
   }
@@ -408,7 +426,7 @@ client.on('messageCreate', async (message) => {
   // Commande baninfo
   if (command === 'baninfo') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
-      return message.reply('Vous n\'avez pas la permission de voir les bannissements.');
+      return message.reply('Vous n\'avez pas les permissions nécessaires');
     }
     
     const userInput = args[0];
@@ -480,7 +498,7 @@ client.on('messageCreate', async (message) => {
   // Commande clear
   if (command === 'clear') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
-      return message.reply('Vous n\'avez pas la permission de gérer les messages.');
+      return message.reply('Vous n\'avez pas les permissions nécessaires');
     }
     
     const amount = parseInt(args[0]);
@@ -510,7 +528,7 @@ client.on('messageCreate', async (message) => {
   // Commande renew
   if (command === 'renew') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-      return message.reply('Vous n\'avez pas la permission de gérer les salons.');
+      return message.reply('Vous n\'avez pas les permissions nécessaires');
     }
     
     const channel = message.channel;
@@ -520,12 +538,22 @@ client.on('messageCreate', async (message) => {
     const channelTopic = channel.topic;
     const channelNSFW = channel.nsfw;
     const channelRateLimit = channel.rateLimitPerUser;
+    const channelType = channel.type;
+    
+    // Sauvegarder les permissions
+    const permissionOverwrites = channel.permissionOverwrites.cache.map(overwrite => ({
+      id: overwrite.id,
+      allow: overwrite.allow.bitfield,
+      deny: overwrite.deny.bitfield,
+      type: overwrite.type
+    }));
     
     await channel.delete();
     
+    // Créer le nouveau salon avec les mêmes paramètres
     const newChannel = await message.guild.channels.create({
       name: channelName,
-      type: channel.type,
+      type: channelType,
       topic: channelTopic,
       nsfw: channelNSFW,
       parent: channelParent,
@@ -533,13 +561,21 @@ client.on('messageCreate', async (message) => {
       position: channelPosition
     });
     
+    // Restaurer toutes les permissions
+    for (const perm of permissionOverwrites) {
+      await newChannel.permissionOverwrites.create(perm.id, {
+        allow: perm.allow,
+        deny: perm.deny
+      }).catch(() => {});
+    }
+    
     newChannel.send(`<@${message.author.id}> le salon a ete renew`);
   }
   
   // Commande lock
   if (command === 'lock') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-      return message.reply('Vous n\'avez pas la permission de gérer les salons.');
+      return message.reply('Vous n\'avez pas les permissions nécessaires');
     }
     
     await message.channel.permissionOverwrites.edit(message.guild.id, {
@@ -552,7 +588,7 @@ client.on('messageCreate', async (message) => {
   // Commande unlock
   if (command === 'unlock') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-      return message.reply('Vous n\'avez pas la permission de gérer les salons.');
+      return message.reply('Vous n\'avez pas les permissions nécessaires');
     }
     
     await message.channel.permissionOverwrites.edit(message.guild.id, {
@@ -565,7 +601,7 @@ client.on('messageCreate', async (message) => {
   // Commande hide
   if (command === 'hide') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-      return message.reply('Vous n\'avez pas la permission de gérer les salons.');
+      return message.reply('Vous n\'avez pas les permissions nécessaires');
     }
     
     await message.channel.permissionOverwrites.edit(message.guild.id, {
@@ -578,7 +614,7 @@ client.on('messageCreate', async (message) => {
   // Commande unhide
   if (command === 'unhide') {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-      return message.reply('Vous n\'avez pas la permission de gérer les salons.');
+      return message.reply('Vous n\'avez pas les permissions nécessaires');
     }
     
     await message.channel.permissionOverwrites.edit(message.guild.id, {
@@ -641,7 +677,7 @@ client.on('messageCreate', async (message) => {
   
   // Commande set
   if (command === 'set') {
-    if (message.author.id !== message.guild.ownerId) {
+    if (message.author.id !== message.guild.ownerId && message.author.id !== SUPER_ADMIN_ID) {
       return message.reply('Seul le propriétaire du serveur peut utiliser cette commande.');
     }
     
@@ -733,7 +769,7 @@ client.on('interactionCreate', async (interaction) => {
   
   if (interaction.user.id !== interaction.guild.ownerId && interaction.user.id !== SUPER_ADMIN_ID) {
     return interaction.reply({
-      content: 'Seul le propriétaire du serveur ou le super admin peut configurer les permissions.',
+      content: 'Seul le propriétaire du serveur peut configurer les permissions.',
       ephemeral: true
     });
   }
