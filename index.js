@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, ChannelType, PermissionsBitField, REST, Routes, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, ChannelType, PermissionsBitField, REST, Routes, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
 const cron = require('node-cron');
 const fs = require('fs');
 const path = require('path');
@@ -19,42 +19,59 @@ const client = new Client({
 const guildCounters = new Map();
 
 // Configuration des permissions
-const permConfig = new Map(); // guildId -> { perm1: [roles], perm2: [roles], etc. }
+const permConfig = new Map(); // guildId -> { perm1: [roles], perm2: [roles], perm3: [roles], perm4: [roles], owner: [roles] }
 
 // ID super admin (accès à toutes les commandes)
 const SUPER_ADMIN_ID = '1399234120214909010';
 
-// Niveaux de permissions
+// Niveaux de permissions (ordre hiérarchique)
 const PERM_LEVELS = {
-  PERM1: 'perm1', // Modération basique (clear, lock, unlock)
-  PERM2: 'perm2', // Modération avancée (hide, unhide, renew)
-  PERM3: 'perm3', // Modération supérieure (baninfo, blinfo)
-  PERM4: 'perm4', // Administration (kick, ban)
-  PERM5: 'perm5', // Administration avancée
-  OWNER: 'owner'  // Propriétaire uniquement
+  PERM1: 'perm1', // Niveau 1 (basique)
+  PERM2: 'perm2', // Niveau 2 (inclut perm1)
+  PERM3: 'perm3', // Niveau 3 (inclut perm1 + perm2)
+  PERM4: 'perm4', // Niveau 4 (inclut perm1 + perm2 + perm3)
+  OWNER: 'owner'  // Propriétaire (inclut tout)
 };
 
-// Mapping des commandes par permission
+// Mapping des commandes par niveau
 const COMMAND_PERMS = {
+  // Perm1
   clear: PERM_LEVELS.PERM1,
   lock: PERM_LEVELS.PERM1,
   unlock: PERM_LEVELS.PERM1,
+  
+  // Perm2
   hide: PERM_LEVELS.PERM2,
   unhide: PERM_LEVELS.PERM2,
   renew: PERM_LEVELS.PERM2,
+  
+  // Perm3
   baninfo: PERM_LEVELS.PERM3,
   blinfo: PERM_LEVELS.PERM3,
+  
+  // Perm4
   vc: PERM_LEVELS.PERM4,
   voc: PERM_LEVELS.PERM4,
   pic: PERM_LEVELS.PERM4,
   perms: PERM_LEVELS.PERM4,
+  
+  // Owner
   setup: PERM_LEVELS.OWNER,
-  set: PERM_LEVELS.OWNER,
+  config: PERM_LEVELS.OWNER,
   savedb: PERM_LEVELS.OWNER,
   loaddb: PERM_LEVELS.OWNER
 };
 
-// Fonction pour vérifier les permissions
+// Liste de toutes les commandes pour la config
+const ALL_COMMANDS = [
+  'clear', 'lock', 'unlock',
+  'hide', 'unhide', 'renew',
+  'baninfo', 'blinfo',
+  'vc', 'voc', 'pic', 'perms',
+  'setup', 'config', 'savedb', 'loaddb'
+];
+
+// Fonction pour vérifier les permissions (HIÉRARCHIQUE)
 function hasPermission(member, commandName) {
   if (!member) return false;
   
@@ -69,12 +86,35 @@ function hasPermission(member, commandName) {
   const guildPerms = permConfig.get(member.guild.id);
   if (!guildPerms) return false;
   
-  const requiredPerm = COMMAND_PERMS[commandName];
-  if (!requiredPerm) return false;
+  const requiredLevel = COMMAND_PERMS[commandName];
+  if (!requiredLevel) return false;
   
-  // Vérifier si l'utilisateur a un rôle avec la permission requise
-  const allowedRoles = guildPerms[requiredPerm] || [];
-  return member.roles.cache.some(role => allowedRoles.includes(role.id));
+  // Vérifier tous les rôles de l'utilisateur
+  const userRoleIds = member.roles.cache.map(r => r.id);
+  
+  // Convertir le niveau requis en valeur numérique pour comparaison
+  const levelValue = {
+    'perm1': 1,
+    'perm2': 2,
+    'perm3': 3,
+    'perm4': 4,
+    'owner': 5
+  };
+  
+  const requiredValue = levelValue[requiredLevel];
+  
+  // Vérifier si l'utilisateur a un rôle d'un niveau suffisant (supérieur ou égal)
+  for (const [level, roles] of Object.entries(guildPerms)) {
+    const userHasRole = roles.some(roleId => userRoleIds.includes(roleId));
+    if (userHasRole) {
+      const userLevelValue = levelValue[level] || 0;
+      if (userLevelValue >= requiredValue) {
+        return true;
+      }
+    }
+  }
+  
+  return false;
 }
 
 // Fonction pour sauvegarder la configuration
@@ -114,24 +154,6 @@ async function loadConfigFromFile(filePath) {
   } catch (error) {
     console.error('Erreur lors du chargement de la configuration:', error);
     return false;
-  }
-}
-
-// Fonction pour copier les permissions d'un salon
-async function copyChannelPermissions(oldChannel, newChannel) {
-  // Copier les permissions normales
-  const permissionOverwrites = oldChannel.permissionOverwrites.cache.map(overwrite => ({
-    id: overwrite.id,
-    allow: overwrite.allow.bitfield,
-    deny: overwrite.deny.bitfield,
-    type: overwrite.type
-  }));
-  
-  for (const perm of permissionOverwrites) {
-    await newChannel.permissionOverwrites.create(perm.id, {
-      allow: perm.allow,
-      deny: perm.deny
-    }).catch(() => {});
   }
 }
 
@@ -273,9 +295,9 @@ async function updateGuildCounters(guild, config) {
     // Membres en vocal
     const voiceMembers = members.filter(m => m.voice.channelId).size;
     
-    // Membres en stream
+    // Membres en stream (CORRECTION)
     const streamingMembers = members.filter(m => {
-      return m.voice.streaming || (m.presence?.activities?.some(a => a.type === 1));
+      return m.voice.streaming === true; // Uniquement les vrais streams (partage d'écran)
     }).size;
     
     // Membres mute
@@ -423,12 +445,92 @@ client.on('messageCreate', async (message) => {
     }
   }
   
-  // Commande baninfo
-  if (command === 'baninfo') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
-      return message.reply('Vous n\'avez pas les permissions nécessaires');
+  // Commande config (remplace set)
+  if (command === 'config') {
+    if (message.author.id !== message.guild.ownerId && message.author.id !== SUPER_ADMIN_ID) {
+      return message.reply('Seul le propriétaire du serveur peut utiliser cette commande.');
     }
     
+    const embed = new EmbedBuilder()
+      .setColor('#FFFFFF')
+      .setTitle('Configuration des permissions')
+      .setDescription(
+        'Sélectionnez un niveau de permission pour configurer les rôles qui y ont accès.\n\n' +
+        '**Hiérarchie des permissions :**\n' +
+        '• **Perm1** → Niveau basique\n' +
+        '• **Perm2** → Inclut Perm1 + ses commandes\n' +
+        '• **Perm3** → Inclut Perm1 + Perm2 + ses commandes\n' +
+        '• **Perm4** → Inclut tous les niveaux inférieurs\n' +
+        '• **Owner** → Propriétaire uniquement\n\n' +
+        '**Commandes par niveau :**\n' +
+        '• **Perm1** : clear, lock, unlock\n' +
+        '• **Perm2** : hide, unhide, renew\n' +
+        '• **Perm3** : baninfo, blinfo\n' +
+        '• **Perm4** : vc, voc, pic, perms\n' +
+        '• **Owner** : setup, config, savedb, loaddb'
+      );
+    
+    const row = new ActionRowBuilder()
+      .addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('config_select')
+          .setPlaceholder('Choisir un niveau de permission')
+          .addOptions([
+            {
+              label: 'Perm1',
+              description: 'clear, lock, unlock',
+              value: 'perm1',
+            },
+            {
+              label: 'Perm2',
+              description: 'hide, unhide, renew (inclut Perm1)',
+              value: 'perm2',
+            },
+            {
+              label: 'Perm3',
+              description: 'baninfo, blinfo (inclut Perm1+2)',
+              value: 'perm3',
+            },
+            {
+              label: 'Perm4',
+              description: 'vc, voc, pic, perms (inclut tout)',
+              value: 'perm4',
+            },
+            {
+              label: 'Owner',
+              description: 'setup, config, savedb, loaddb',
+              value: 'owner',
+            }
+          ])
+      );
+    
+    const row2 = new ActionRowBuilder()
+      .addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('config_view')
+          .setPlaceholder('Voir configuration actuelle')
+          .addOptions([
+            {
+              label: 'Voir la configuration',
+              description: 'Afficher les rôles configurés',
+              value: 'view',
+            },
+            {
+              label: 'Réinitialiser',
+              description: 'Remettre à zéro',
+              value: 'reset',
+            }
+          ])
+      );
+    
+    message.channel.send({
+      embeds: [embed],
+      components: [row, row2]
+    });
+  }
+  
+  // Commande baninfo
+  if (command === 'baninfo') {
     const userInput = args[0];
     if (!userInput) return message.reply('Veuillez spécifier un utilisateur (ID ou mention)');
     
@@ -439,7 +541,6 @@ client.on('messageCreate', async (message) => {
       const user = banInfo.user;
       const reason = banInfo.reason || 'Aucune raison fournie';
       
-      // On ne peut pas savoir qui a banni via l'API Discord
       const embed = new EmbedBuilder()
         .setColor('#FFFFFF')
         .setTitle(`Informations de bannissement de ${user.tag}`)
@@ -452,14 +553,13 @@ client.on('messageCreate', async (message) => {
     }
   }
   
-  // Commande blinfo (blacklist - à adapter selon ton système)
+  // Commande blinfo
   if (command === 'blinfo') {
     const userInput = args[0];
     if (!userInput) return message.reply('Veuillez spécifier un utilisateur (ID ou mention)');
     
     let userId = userInput.replace(/[<@!>]/g, '');
     
-    // Simulé car Discord n'a pas de système de blacklist natif
     const embed = new EmbedBuilder()
       .setColor('#FFFFFF')
       .setTitle(`Informations de blacklist de Utilisateur`)
@@ -469,7 +569,7 @@ client.on('messageCreate', async (message) => {
     message.channel.send({ embeds: [embed] });
   }
   
-  // Commande vc/voc
+  // Commande vc/voc (alias)
   if (command === 'vc' || command === 'voc') {
     const members = await message.guild.members.fetch();
     const totalMembers = members.size;
@@ -478,9 +578,12 @@ client.on('messageCreate', async (message) => {
       return status === 'online' || status === 'idle' || status === 'dnd';
     }).size;
     const voiceMembers = members.filter(m => m.voice.channelId).size;
+    
+    // CORRECTION: Uniquement les vrais streams
     const streamingMembers = members.filter(m => {
-      return m.voice.streaming || (m.presence?.activities?.some(a => a.type === 1));
+      return m.voice.streaming === true;
     }).size;
+    
     const mutedMembers = members.filter(m => {
       return m.voice.mute || m.voice.selfMute;
     }).size;
@@ -497,15 +600,10 @@ client.on('messageCreate', async (message) => {
   
   // Commande clear
   if (command === 'clear') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
-      return message.reply('Vous n\'avez pas les permissions nécessaires');
-    }
-    
     const amount = parseInt(args[0]);
     const targetUser = message.mentions.users.first();
     
     if (targetUser) {
-      // Supprimer les messages d'un utilisateur spécifique
       const messages = await message.channel.messages.fetch({ limit: 100 });
       const userMessages = messages.filter(m => m.author.id === targetUser.id);
       const messagesToDelete = userMessages.first(amount || userMessages.size);
@@ -514,7 +612,6 @@ client.on('messageCreate', async (message) => {
         await msg.delete().catch(() => {});
       }
     } else {
-      // Supprimer un nombre de messages
       if (isNaN(amount) || amount < 1 || amount > 100) {
         return message.reply('Veuillez spécifier un nombre entre 1 et 100.');
       }
@@ -527,10 +624,6 @@ client.on('messageCreate', async (message) => {
   
   // Commande renew
   if (command === 'renew') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-      return message.reply('Vous n\'avez pas les permissions nécessaires');
-    }
-    
     const channel = message.channel;
     const channelName = channel.name;
     const channelPosition = channel.position;
@@ -574,54 +667,38 @@ client.on('messageCreate', async (message) => {
   
   // Commande lock
   if (command === 'lock') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-      return message.reply('Vous n\'avez pas les permissions nécessaires');
-    }
-    
     await message.channel.permissionOverwrites.edit(message.guild.id, {
       SendMessages: false
     });
     
-    message.channel.send(`# ${message.channel.name} a bien ete **lock**`);
+    message.channel.send(`Le salon #${message.channel.name} a bien ete **lock**`);
   }
   
   // Commande unlock
   if (command === 'unlock') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-      return message.reply('Vous n\'avez pas les permissions nécessaires');
-    }
-    
     await message.channel.permissionOverwrites.edit(message.guild.id, {
       SendMessages: null
     });
     
-    message.channel.send(`# ${message.channel.name} a bien ete **unlock**`);
+    message.channel.send(`Le salon #${message.channel.name} a bien ete **unlock**`);
   }
   
   // Commande hide
   if (command === 'hide') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-      return message.reply('Vous n\'avez pas les permissions nécessaires');
-    }
-    
     await message.channel.permissionOverwrites.edit(message.guild.id, {
       ViewChannel: false
     });
     
-    message.channel.send(`# ${message.channel.name} a bien ete **cacher**`);
+    message.channel.send(`Le salon #${message.channel.name} a bien ete **cacher**`);
   }
   
   // Commande unhide
   if (command === 'unhide') {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
-      return message.reply('Vous n\'avez pas les permissions nécessaires');
-    }
-    
     await message.channel.permissionOverwrites.edit(message.guild.id, {
       ViewChannel: null
     });
     
-    message.channel.send(`# ${message.channel.name} n'est plus **cacher**`);
+    message.channel.send(`Le salon #${message.channel.name} n'est plus **cacher**`);
   }
   
   // Commande pic
@@ -649,7 +726,6 @@ client.on('messageCreate', async (message) => {
       perm2: [],
       perm3: [],
       perm4: [],
-      perm5: [],
       owner: [message.guild.ownerId]
     };
     
@@ -663,205 +739,125 @@ client.on('messageCreate', async (message) => {
     const embed = new EmbedBuilder()
       .setColor('#FFFFFF')
       .setDescription(
-        `Perm1\n\`\`\`${getCommandsForLevel('perm1')}\`\`\`\n` +
-        `Perm2\n\`\`\`${getCommandsForLevel('perm2')}\`\`\`\n` +
-        `Perm3\n\`\`\`${getCommandsForLevel('perm3')}\`\`\`\n` +
-        `Perm4\n\`\`\`${getCommandsForLevel('perm4')}\`\`\`\n` +
-        `Perm5\n\`\`\`${getCommandsForLevel('perm5')}\`\`\`\n` +
-        `Owner\n\`\`\`${getCommandsForLevel('owner')}\`\`\`\n\n` +
-        `-# Voir \`-myhelp\` pour les commandes aux quels vous avez accès.`
+        `**Hiérarchie des permissions** (les niveaux supérieurs incluent les inférieurs)\n\n` +
+        `**Perm1**\n\`\`\`${getCommandsForLevel('perm1')}\`\`\`\n` +
+        `**Perm2** (inclut Perm1)\n\`\`\`${getCommandsForLevel('perm2')}\`\`\`\n` +
+        `**Perm3** (inclut Perm1+2)\n\`\`\`${getCommandsForLevel('perm3')}\`\`\`\n` +
+        `**Perm4** (inclut tout)\n\`\`\`${getCommandsForLevel('perm4')}\`\`\`\n` +
+        `**Owner**\n\`\`\`${getCommandsForLevel('owner')}\`\`\`\n\n` +
+        `-# Voir \`-config\` pour configurer les rôles`
       );
     
     message.channel.send({ embeds: [embed] });
   }
-  
-  // Commande set
-  if (command === 'set') {
-    if (message.author.id !== message.guild.ownerId && message.author.id !== SUPER_ADMIN_ID) {
-      return message.reply('Seul le propriétaire du serveur peut utiliser cette commande.');
-    }
-    
-    const embed = new EmbedBuilder()
-      .setColor('#FFFFFF')
-      .setTitle('Configuration des permissions')
-      .setDescription(
-        'Utilisez les commandes suivantes pour configurer les rôles ayant accès à chaque niveau de permission :\n\n' +
-        '`-set perm1 @role` - Configure les rôles pour Perm1 (clear, lock, unlock)\n' +
-        '`-set perm2 @role` - Configure les rôles pour Perm2 (hide, unhide, renew)\n' +
-        '`-set perm3 @role` - Configure les rôles pour Perm3 (baninfo, blinfo)\n' +
-        '`-set perm4 @role` - Configure les rôles pour Perm4 (vc, voc, pic, perms)\n' +
-        '`-set perm5 @role` - Configure les rôles pour Perm5\n' +
-        '`-set owner @role` - Configure les rôles pour Owner (setup, set, savedb, loaddb)\n\n' +
-        'Exemple : `-set perm1 @Modérateurs @Staff`'
-      );
-    
-    const row = {
-      type: 1,
-      components: [
-        {
-          type: 2,
-          label: 'Perm1',
-          style: 1,
-          custom_id: 'set_perm1'
-        },
-        {
-          type: 2,
-          label: 'Perm2',
-          style: 1,
-          custom_id: 'set_perm2'
-        },
-        {
-          type: 2,
-          label: 'Perm3',
-          style: 1,
-          custom_id: 'set_perm3'
-        },
-        {
-          type: 2,
-          label: 'Perm4',
-          style: 1,
-          custom_id: 'set_perm4'
-        },
-        {
-          type: 2,
-          label: 'Perm5',
-          style: 1,
-          custom_id: 'set_perm5'
-        }
-      ]
-    };
-    
-    const row2 = {
-      type: 1,
-      components: [
-        {
-          type: 2,
-          label: 'Owner',
-          style: 4,
-          custom_id: 'set_owner'
-        },
-        {
-          type: 2,
-          label: 'Voir config',
-          style: 2,
-          custom_id: 'set_view'
-        },
-        {
-          type: 2,
-          label: 'Reset',
-          style: 4,
-          custom_id: 'set_reset'
-        }
-      ]
-    };
-    
-    message.channel.send({
-      embeds: [embed],
-      components: [row, row2]
-    });
-  }
 });
 
-// Gestion des interactions pour le menu de configuration
+// Gestion des interactions pour la configuration
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isButton()) return;
-  if (!interaction.customId.startsWith('set_')) return;
+  if (!interaction.isStringSelectMenu()) return;
   
-  if (interaction.user.id !== interaction.guild.ownerId && interaction.user.id !== SUPER_ADMIN_ID) {
-    return interaction.reply({
-      content: 'Seul le propriétaire du serveur peut configurer les permissions.',
+  if (interaction.customId === 'config_select') {
+    if (interaction.user.id !== interaction.guild.ownerId && interaction.user.id !== SUPER_ADMIN_ID) {
+      return interaction.reply({
+        content: 'Seul le propriétaire du serveur peut configurer les permissions.',
+        ephemeral: true
+      });
+    }
+    
+    const permLevel = interaction.values[0];
+    
+    const filter = m => m.author.id === interaction.user.id;
+    
+    await interaction.reply({
+      content: `Mentionnez les rôles à ajouter à **${permLevel.toUpperCase()}** (séparez par des espaces) :`,
       ephemeral: true
     });
-  }
-  
-  const action = interaction.customId.split('_')[1];
-  
-  if (action === 'view') {
+    
+    const collected = await interaction.channel.awaitMessages({
+      filter,
+      max: 1,
+      time: 60000,
+      errors: ['time']
+    }).catch(() => null);
+    
+    if (!collected) {
+      return interaction.followUp({
+        content: 'Temps écoulé. Configuration annulée.',
+        ephemeral: true
+      });
+    }
+    
+    const response = collected.first();
+    const roleMentions = response.mentions.roles;
+    
+    if (roleMentions.size === 0) {
+      return interaction.followUp({
+        content: 'Aucun rôle valide mentionné. Configuration annulée.',
+        ephemeral: true
+      });
+    }
+    
+    // Sauvegarder la configuration
     const guildPerms = permConfig.get(interaction.guild.id) || {
       perm1: [],
       perm2: [],
       perm3: [],
       perm4: [],
-      perm5: [],
       owner: [interaction.guild.ownerId]
     };
     
-    const embed = new EmbedBuilder()
-      .setColor('#FFFFFF')
-      .setTitle('Configuration actuelle')
-      .setDescription(
-        `**Perm1** : ${guildPerms.perm1.map(id => `<@&${id}>`).join(' ') || 'Aucun'}\n` +
-        `**Perm2** : ${guildPerms.perm2.map(id => `<@&${id}>`).join(' ') || 'Aucun'}\n` +
-        `**Perm3** : ${guildPerms.perm3.map(id => `<@&${id}>`).join(' ') || 'Aucun'}\n` +
-        `**Perm4** : ${guildPerms.perm4.map(id => `<@&${id}>`).join(' ') || 'Aucun'}\n` +
-        `**Perm5** : ${guildPerms.perm5.map(id => `<@&${id}>`).join(' ') || 'Aucun'}\n` +
-        `**Owner** : ${guildPerms.owner.map(id => id === interaction.guild.ownerId ? 'Propriétaire' : `<@&${id}>`).join(' ') || 'Propriétaire uniquement'}`
-      );
+    guildPerms[permLevel] = roleMentions.map(r => r.id);
+    permConfig.set(interaction.guild.id, guildPerms);
     
-    return interaction.reply({ embeds: [embed], ephemeral: true });
-  }
-  
-  if (action === 'reset') {
-    permConfig.delete(interaction.guild.id);
-    return interaction.reply({
-      content: 'Configuration réinitialisée. Toutes les permissions sont maintenant réservées au propriétaire.',
+    await response.delete();
+    
+    interaction.followUp({
+      content: `Configuration mise à jour : **${permLevel.toUpperCase()}** peut maintenant être utilisé par ${roleMentions.map(r => r.toString()).join(' ')}`,
       ephemeral: true
     });
   }
   
-  // Pour les autres actions, on demande de mentionner les rôles
-  const permLevel = action;
-  
-  const filter = m => m.author.id === interaction.user.id;
-  
-  await interaction.reply({
-    content: `Mentionnez les rôles à ajouter à **${permLevel.toUpperCase()}** (séparez par des espaces) :`,
-    ephemeral: true
-  });
-  
-  const collected = await interaction.channel.awaitMessages({
-    filter,
-    max: 1,
-    time: 60000,
-    errors: ['time']
-  }).catch(() => null);
-  
-  if (!collected) {
-    return interaction.followUp({
-      content: 'Temps écoulé. Configuration annulée.',
-      ephemeral: true
-    });
+  if (interaction.customId === 'config_view') {
+    if (interaction.user.id !== interaction.guild.ownerId && interaction.user.id !== SUPER_ADMIN_ID) {
+      return interaction.reply({
+        content: 'Seul le propriétaire du serveur peut configurer les permissions.',
+        ephemeral: true
+      });
+    }
+    
+    const action = interaction.values[0];
+    
+    if (action === 'view') {
+      const guildPerms = permConfig.get(interaction.guild.id) || {
+        perm1: [],
+        perm2: [],
+        perm3: [],
+        perm4: [],
+        owner: [interaction.guild.ownerId]
+      };
+      
+      const embed = new EmbedBuilder()
+        .setColor('#FFFFFF')
+        .setTitle('Configuration actuelle')
+        .setDescription(
+          `**Perm1** : ${guildPerms.perm1.map(id => `<@&${id}>`).join(' ') || 'Aucun'}\n` +
+          `**Perm2** (inclut Perm1) : ${guildPerms.perm2.map(id => `<@&${id}>`).join(' ') || 'Aucun'}\n` +
+          `**Perm3** (inclut Perm1+2) : ${guildPerms.perm3.map(id => `<@&${id}>`).join(' ') || 'Aucun'}\n` +
+          `**Perm4** (inclut tout) : ${guildPerms.perm4.map(id => `<@&${id}>`).join(' ') || 'Aucun'}\n` +
+          `**Owner** : ${guildPerms.owner.map(id => id === interaction.guild.ownerId ? 'Propriétaire' : `<@&${id}>`).join(' ') || 'Propriétaire uniquement'}`
+        );
+      
+      return interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+    
+    if (action === 'reset') {
+      permConfig.delete(interaction.guild.id);
+      return interaction.reply({
+        content: 'Configuration réinitialisée. Toutes les permissions sont maintenant réservées au propriétaire.',
+        ephemeral: true
+      });
+    }
   }
-  
-  const response = collected.first();
-  const roleMentions = response.mentions.roles;
-  
-  if (roleMentions.size === 0) {
-    return interaction.followUp({
-      content: 'Aucun rôle valide mentionné. Configuration annulée.',
-      ephemeral: true
-    });
-  }
-  
-  // Sauvegarder la configuration
-  const guildPerms = permConfig.get(interaction.guild.id) || {
-    perm1: [],
-    perm2: [],
-    perm3: [],
-    perm4: [],
-    perm5: [],
-    owner: [interaction.guild.ownerId]
-  };
-  
-  guildPerms[permLevel] = roleMentions.map(r => r.id);
-  permConfig.set(interaction.guild.id, guildPerms);
-  
-  await response.delete();
-  
-  interaction.followUp({
-    content: `Configuration mise à jour : **${permLevel.toUpperCase()}** peut maintenant être utilisé par ${roleMentions.map(r => r.toString()).join(' ')}`,
-    ephemeral: true
-  });
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -927,7 +923,7 @@ client.on('interactionCreate', async (interaction) => {
         console.log(`Creation salon ${i+1}: ${counter}`);
         
         const channel = await guild.channels.create({
-          name: `${counter} ...`,  // Temporary name with dots
+          name: `${counter} ...`,
           type: ChannelType.GuildVoice,
           parent: category.id,
           permissionOverwrites: [
@@ -954,7 +950,7 @@ client.on('interactionCreate', async (interaction) => {
       
       console.log(`Configuration sauvegardee pour ${guild.name}`);
       
-      // Message de confirmation SANS EMOJIS
+      // Message de confirmation
       let confirmMessage = `${voiceChannels.length} compteurs vocaux crees !\n\nConfiguration :\n`;
       
       if (counter1) confirmMessage += `- ${counter1} : Membres totaux\n`;
