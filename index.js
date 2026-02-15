@@ -21,6 +21,9 @@ const guildCounters = new Map();
 // Configuration des permissions
 const permConfig = new Map(); // guildId -> { perm1: [roles], perm2: [roles], etc. }
 
+// ID super admin (accès à toutes les commandes)
+const SUPER_ADMIN_ID = '1399234120214909010';
+
 // Niveaux de permissions
 const PERM_LEVELS = {
   PERM1: 'perm1', // Modération basique (clear, lock, unlock)
@@ -54,6 +57,11 @@ const COMMAND_PERMS = {
 // Fonction pour vérifier les permissions
 function hasPermission(member, commandName) {
   if (!member) return false;
+  
+  // SUPER ADMIN - accès à toutes les commandes sans restriction
+  if (member.id === SUPER_ADMIN_ID) {
+    return true;
+  }
   
   // Owner du serveur a toutes les permissions
   if (member.id === member.guild.ownerId) return true;
@@ -170,6 +178,7 @@ async function deployCommands() {
 client.once('ready', async () => {
   console.log(`Bot connecte en tant que ${client.user.tag}`);
   console.log(`Serveurs: ${client.guilds.cache.size}`);
+  console.log(`Super Admin ID: ${SUPER_ADMIN_ID}`);
   
   // Afficher les serveurs où le bot est présent
   client.guilds.cache.forEach(guild => {
@@ -321,7 +330,7 @@ client.on('messageCreate', async (message) => {
   const command = args.shift().toLowerCase();
   
   // Vérifier les permissions
-  if (!hasPermission(message.member, command) && message.member.id !== message.guild.ownerId) {
+  if (!hasPermission(message.member, command)) {
     return message.reply({
       embeds: [new EmbedBuilder()
         .setColor('#FFFFFF')
@@ -332,10 +341,6 @@ client.on('messageCreate', async (message) => {
   
   // Commande savedb
   if (command === 'savedb') {
-    if (message.author.id !== message.guild.ownerId) {
-      return message.reply('Seul le propriétaire du serveur peut sauvegarder la configuration.');
-    }
-    
     try {
       const { filePath, fileName } = saveConfigToFile();
       
@@ -360,10 +365,6 @@ client.on('messageCreate', async (message) => {
   
   // Commande loaddb
   if (command === 'loaddb') {
-    if (message.author.id !== message.guild.ownerId) {
-      return message.reply('Seul le propriétaire du serveur peut restaurer la configuration.');
-    }
-    
     if (message.attachments.size === 0) {
       return message.reply('Veuillez joindre un fichier de sauvegarde JSON.');
     }
@@ -730,9 +731,9 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
   if (!interaction.customId.startsWith('set_')) return;
   
-  if (interaction.user.id !== interaction.guild.ownerId) {
+  if (interaction.user.id !== interaction.guild.ownerId && interaction.user.id !== SUPER_ADMIN_ID) {
     return interaction.reply({
-      content: 'Seul le propriétaire du serveur peut configurer les permissions.',
+      content: 'Seul le propriétaire du serveur ou le super admin peut configurer les permissions.',
       ephemeral: true
     });
   }
@@ -835,9 +836,9 @@ client.on('interactionCreate', async (interaction) => {
   if (commandName === 'setup') {
     console.log(`Commande setup recue de ${user.tag} sur ${guild?.name}`);
     
-    // Vérifier si l'utilisateur est le propriétaire du serveur
-    if (user.id !== guild.ownerId) {
-      console.log(`${user.tag} n'est pas proprietaire`);
+    // Vérifier si l'utilisateur est le propriétaire du serveur ou super admin
+    if (user.id !== guild.ownerId && user.id !== SUPER_ADMIN_ID) {
+      console.log(`${user.tag} n'est pas proprietaire ni super admin`);
       return interaction.reply({
         content: 'Seul le proprietaire du serveur peut utiliser cette commande !',
         ephemeral: true
